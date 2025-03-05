@@ -1,0 +1,191 @@
+-- create table CovidDeaths (
+-- iso_code text, continent varchar(50), location varchar(100),
+-- date varchar(50), population bigint, total_cases int, new_cases int, 
+-- new_cases_smoothed float, total_deaths int, new_deaths int, new_deaths_smoothed float,
+-- total_cases_per_million float, new_cases_per_million float, new_cases_smoothed_per_million float,
+-- total_deaths_per_million float, new_deaths_per_million float,
+-- new_deaths_smoothed_per_million float, reproduction_rate float, icu_patients int,
+-- icu_patients_per_million float, hosp_patients int, hosp_patients_per_million float,
+-- weekly_icu_admissions float, weekly_icu_admissions_per_million float, 
+-- weekly_hosp_admissions float, weekly_hosp_admissions_per_million float)
+
+-- select * 
+-- from CovidDeaths
+-- ORDER by 3,4
+
+-- CREATE table covidvaccination(
+-- iso_code text,	continent VARCHAR(50),	location VARCHAR(100),	date VARCHAR(50),
+-- new_tests int,	total_tests int,	total_tests_per_thousand float,	new_tests_per_thousand float,	new_tests_smoothed int,	 
+-- new_tests_smoothed_per_thousand float,	positive_rate float,	tests_per_case float,	tests_units text,	total_vaccinations int,
+-- people_vaccinated int,	people_fully_vaccinated int, 	new_vaccinations int, 	new_vaccinations_smoothed int,	total_vaccinations_per_hundred float,
+-- people_vaccinated_per_hundred float,	people_fully_vaccinated_per_hundred float,	new_vaccinations_smoothed_per_million float,
+-- stringency_index float,		population_density float,	median_age float,	aged_65_older float,	aged_70_older float,	
+-- gdp_per_capita float,	extreme_poverty float,	cardiovasc_death_rate float,	diabetes_prevalence float,	female_smokers float,	male_smokers float, 
+-- handwashing_facilities float,	hospital_beds_per_thousand float,	life_expectancy float,	human_development_index float
+-- )
+
+-- select * 
+-- from covidvaccination
+-- ORDER by 3,4
+
+-- copy CovidDeaths FROM 'CovidDeaths.csv' DELIMITER ',' CSV HEADER;
+
+-- \COPY CovidDeaths TO '/home/leuza/SQL/covidDeath/coviddeaths.csv' DELIMITER ',' CSV HEADER;
+
+-- select version()
+
+
+SELECT *
+FROM CovidDeaths
+WHERE continent is not null
+
+-- select data that  we are going to be USING
+SELECT location, date, total_cases, new_cases, total_deaths, population
+FROM CovidDeaths
+WHERE continent is not null
+
+--  lookng at Total Cases vs Total Death
+-- showes likehood of dying if you contract covid in your country
+SELECT location, date, total_cases,  total_deaths, cast(total_deaths as decimal) / total_cases*100 as death_percentage
+FROM CovidDeaths
+-- where LOCATION LIKE '%Bang%'
+where LOCATION LIKE '%Jap%'
+and continent is not null
+
+
+-- looking at the total cases vs population 
+-- shows what percentage got covid
+select date, location, population, total_cases, cast(total_cases as decimal)/population*100  as percentagePopulationInfected
+FROM CovidDeaths
+WHERE continent is not null
+where location like '%Jap%' and continent is not null
+
+--  looking at countries with highest infection rate compared to population
+select location, population, max(total_cases) as HighInfectionCount,  Max(cast(total_cases as decimal)/population)*100 as percentagePopulationInfected
+from CovidDeaths
+WHERE continent is not null
+group by location, population
+ORDER BY percentagePopulationInfected DESC
+
+-- let's break things down by CONTENT
+select *
+FROM CovidDeaths
+
+-- showing countries with highest death count per population
+
+SELECT location, max(total_deaths) as highest_death
+FROM CovidDeaths
+WHERE continent is not null
+GROUP by location 
+ORDER BY highest_death DESC
+
+-- let's break things down by CONTENT
+SELECT LOCATION, max(total_deaths) as TotalDeathCount
+FROM CovidDeaths
+WHERE continent is null
+GROUP By LOCATION
+ORDER By TotalDeathCount DESC
+
+SELECT continent, max(total_deaths) as TotalDeathCount
+FROM CovidDeaths
+WHERE continent is not null
+GROUP By continent
+ORDER By TotalDeathCount DESC
+
+-- showing CONTINUE with highest death count per population
+SELECT continent, max(total_deaths) as TotalDeathCount
+FROM CovidDeaths
+WHERE continent is not null
+GROUP By continent
+ORDER By TotalDeathCount DESC
+
+-- GLOBAL number
+select (date), sum(new_cases) as Total_case, sum(CovidDeaths.new_deaths) as total_death,
+sum(CAST(CovidDeaths.new_deaths as decimal))/sum(CovidDeaths.new_cases)*100 
+as DeathPercentage  
+FROM CovidDeaths
+-- where location like '%Jap%' 
+where continent is not null
+GROUP by date
+-- ORDER BY 1
+
+-- looking at total population vs vaccination
+SELECT dea.continent, dea.location, to_date(dea.date, 'MM/DD/YYYY'), dea.population, vac.new_vaccinations,
+SUM(vac.new_vaccinations) over (PARTITION BY dea.location ORDER BY dea.location, dea.date) 
+as Rolling_people_Vaccinated,
+-- (Rolling_people_Vaccinated/dea.population)*100 (we can't use the "as" created coloum to calculate )
+FROM CovidDeaths as dea
+JOIN covidvaccination as vac
+ON dea.location = vac.location and dea.date = vac.date
+WHERE dea.continent is not null
+ORDER BY 2, 3
+
+-- use CTE
+with PopvsVac(continent, location, date, polpulation, new_vaccinations, Rolling_people_Vaccinated)
+as(
+SELECT dea.continent, dea.location, to_date(dea.date, 'MM/DD/YYYY'), dea.population, vac.new_vaccinations,
+SUM(vac.new_vaccinations) over (PARTITION BY dea.location ORDER BY dea.location, dea.date) 
+as Rolling_people_Vaccinated
+-- (Rolling_people_Vaccinated/dea.population)*100 
+FROM CovidDeaths as dea
+JOIN covidvaccination as vac
+ON dea.location = vac.location and dea.date = vac.date
+WHERE dea.continent is not null
+-- ORDER BY 2, 3
+)
+SELECT *, cast(Rolling_people_Vaccinated as decimal)/polpulation*100 
+FROM PopvsVac
+
+-- tem TABLE
+DROP TABLE IF exists percentPopulationVaccination
+CREATE TEMPORARY TABLE percentPopulationVaccination
+(
+continent varchar(255), 
+location varchar(255),
+date date,
+population NUMERIC,
+new_vaccinations NUMERIC,
+Rolling_people_Vaccinated FLOAT
+)
+
+INSERT INTO percentPopulationVaccination
+SELECT dea.continent, dea.location, to_date(dea.date, 'MM/DD/YYYY'), dea.population, vac.new_vaccinations,
+SUM(vac.new_vaccinations) over (PARTITION BY dea.location ORDER BY dea.location, dea.date) 
+as Rolling_people_Vaccinated
+-- (Rolling_people_Vaccinated/dea.population)*100 
+FROM CovidDeaths as dea
+JOIN covidvaccination as vac
+ON dea.location = vac.location and dea.date = vac.date
+WHERE dea.continent is not null
+-- ORDER BY 2, 3
+
+SELECT *, cast(Rolling_people_Vaccinated as decimal)/population*100 
+from percentPopulationVaccination
+
+-- create view to store data for later visualization
+create view percentPopulationVaccination as
+select dea.continent, dea.location, to_date(dea.date, 'MM/DD/YYYY'), dea.population, vac.new_vaccinations,
+SUM(vac.new_vaccinations) over (PARTITION BY dea.location ORDER BY dea.location, dea.date) 
+as Rolling_people_Vaccinated
+from CovidDeaths as dea
+join covidvaccination as vac
+on dea.location = vac.location and dea.date= vac.date
+where dea.continent is not null
+order by 2,3
+
+select *
+from percentPopulationVaccination
+
+
+
+
+
+
+
+
+
+
+
+
+
+
